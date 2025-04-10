@@ -7,6 +7,7 @@ from streamlit_folium import folium_static, st_folium
 import branca.colormap as cm
 import json
 from shapely.geometry import Point
+import os
 
 # Set the page title and layout
 st.set_page_config(
@@ -14,7 +15,9 @@ st.set_page_config(
     layout="wide"
 )
 
-sites_path = r'.\AppData\Sites_with_Clusters.shp'
+sites_path = os.path.join('AppData', 'Sites_with_Clusters.shp')
+calls_path = os.path.join('AppData', 'Overdose_zip_geocodio.csv')
+
 sites = gpd.read_file(sites_path)
 sites = sites.to_crs('EPSG:4326')
 sites = sites.rename(columns={'Nearby_Cou': 'Nearby_Count_500',
@@ -24,7 +27,7 @@ sites = sites.rename(columns={'Nearby_Cou': 'Nearby_Count_500',
                               'Nearest_Tr':'Nearest_Transit_Distance', 
                               'Nearest_Ro':'Nearest_Road_Distance'}) # strange saving issue with the shapefile
 
-calls = pd.read_csv(r'.\AppData\Overdose_zip_geocodio.csv')
+calls = pd.read_csv(calls_path)
 calls = gpd.GeoDataFrame(calls, geometry=gpd.points_from_xy(calls.Longitude, calls.Latitude), crs='EPSG:4326')
 
 
