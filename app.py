@@ -15,8 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
-sites_path = os.path.join('AppData', 'Sites_with_Clusters.shp')
-calls_path = os.path.join('AppData', 'Overdose_zip_geocodio.csv')
+sites_path = 'Sites_with_Clusters.shp'
+calls_path = 'Overdose_zip_geocodio.csv'
 
 sites = gpd.read_file(sites_path)
 sites = sites.to_crs('EPSG:4326')
