@@ -1,4 +1,4 @@
-streamlit==1.44.0
+
 pandas
 geopandas==0.13.2
 folium==0.14.0
