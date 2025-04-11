@@ -73,10 +73,11 @@ with st.sidebar:
     st.markdown("### Map Information")
     st.markdown("- Hover over points to see basic information")
     st.markdown("- Click on points to view detailed information in the side panel")
+    st.markdown("- Click anywhere else on the map to calculate nearby calls")
     st.markdown("- Use the cluster filter to highlight specific groups")
     st.markdown("- Toggle call data points to view service call locations")
 
-# Initialize session state to store the selected site
+# Initialize session state to store the selected site and custom point data
 if 'selected_site_id' not in st.session_state:
     st.session_state.selected_site_id = None
 
@@ -121,7 +122,7 @@ with col1:
     
     # Add site points to the map with unique IDs
     for idx, site in map_sites.iterrows():
-# Determine if this point should be highlighted based on cluster filter
+        # Determine if this point should be highlighted based on cluster filter
         is_cluster_highlighted = (not selected_clusters) or (site['Cluster'] in selected_clusters)
 
         # Determine if the site meets proximity thresholds
@@ -268,20 +269,53 @@ with col1:
     m.get_root().html.add_child(folium.Element(legend_html))
     
     # Display the map and capture click events
-    map_data = st_folium(m, width=800, height=600, returned_objects=["last_object_clicked"])
+    map_data = st_folium(m, width=800, height=600, returned_objects=["last_object_clicked", "last_clicked"])
     
     # Process click events
-    if map_data.get("last_object_clicked") is not None:
-        click_lat = map_data["last_object_clicked"]["lat"]
-        click_lng = map_data["last_object_clicked"]["lng"]
-
-        # Find the closest site based on lat/lng match
+    clicked_on_site = False
+    
+    # Check if we got click data
+    if map_data.get("last_clicked") is not None:
+        click_lat = map_data["last_clicked"]["lat"]
+        click_lng = map_data["last_clicked"]["lng"]
+        
+        # First check if this is a known site
         for idx, row in sites.iterrows():
             site_lat = row.geometry.y
             site_lng = row.geometry.x
-            if abs(site_lat - click_lat) < 1e-6 and abs(site_lng - click_lng) < 1e-6:
+            if abs(site_lat - click_lat) < 0.0001 and abs(site_lng - click_lng) < 0.0001:
                 st.session_state.selected_site_id = idx
+                clicked_on_site = True
+                if 'custom_point' in st.session_state:
+                    del st.session_state.custom_point
+                if 'custom_point_counts' in st.session_state:
+                    del st.session_state.custom_point_counts
                 break
+        
+        # If not a known site, create a custom point
+        if not clicked_on_site:
+            st.session_state.selected_site_id = None
+            st.session_state.custom_point = (click_lat, click_lng)
+            
+            # Create a temporary point geometry
+            point = Point(click_lng, click_lat)
+            custom_point_gdf = gpd.GeoDataFrame(geometry=[point], crs='EPSG:4326')
+            
+            # Calculate nearby counts
+            custom_point_gdf = custom_point_gdf.to_crs(epsg=3857)
+            calls_gdf_3857 = calls.to_crs(epsg=3857)
+            
+            # Initialize counts dictionary
+            nearby_counts = {}
+            
+            # Calculate for each distance
+            for distance in [500, 1000, 2000, 3000]:
+                buffer = custom_point_gdf.geometry[0].buffer(distance)
+                count = calls_gdf_3857[calls_gdf_3857.geometry.within(buffer)].shape[0]
+                nearby_counts[f'Nearby_Count_{distance}'] = count
+            
+            # Store the counts in session state
+            st.session_state.custom_point_counts = nearby_counts
     
     # Add information about the dataset
     st.markdown(f"**Total Sites:** {len(sites)}")
@@ -344,5 +378,39 @@ with col2:
         if st.button("Clear Selection"):
             st.session_state.selected_site_id = None
             st.rerun()
+            
+    elif 'custom_point' in st.session_state and 'custom_point_counts' in st.session_state:
+        # Display details for the custom point
+        lat, lng = st.session_state.custom_point
+        
+        st.subheader("Custom Location")
+        st.markdown(f"**Coordinates:** {lat:.6f}, {lng:.6f}")
+        
+        # Create expandable section for proximity information
+        with st.expander("Proximity Information", expanded=True):
+            cols = st.columns(2)
+            with cols[0]:
+                st.metric("Calls within 500m", st.session_state.custom_point_counts.get('Nearby_Count_500', 0))
+                st.metric("Calls within 2000m", st.session_state.custom_point_counts.get('Nearby_Count_2000', 0))
+            with cols[1]:
+                st.metric("Calls within 1000m", st.session_state.custom_point_counts.get('Nearby_Count_1000', 0))
+                st.metric("Calls within 3000m", st.session_state.custom_point_counts.get('Nearby_Count_3000', 0))
+        
+        # Display coordinates again in an expandable section
+        with st.expander("Geospatial Information", expanded=False):
+            st.markdown(f"**Latitude:** {lat:.6f}")
+            st.markdown(f"**Longitude:** {lng:.6f}")
+            
+        # Add a marker for the custom location on the map (this will be visible after rerun)
+        m = folium.Map(location=[lat, lng], zoom_start=15)
+        folium.Marker([lat, lng], tooltip="Custom Location").add_to(m)
+        
+        # Add a button to clear selection
+        if st.button("Clear Selection"):
+            if 'custom_point' in st.session_state:
+                del st.session_state.custom_point
+            if 'custom_point_counts' in st.session_state:
+                del st.session_state.custom_point_counts
+            st.rerun()
     else:
-        st.info("👈 Click on a site on the map to view its details here.")
+        st.info("👈 Click on a site or anywhere on the map to view details and nearby call counts.")
