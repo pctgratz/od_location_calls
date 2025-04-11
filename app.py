@@ -42,7 +42,7 @@ with st.sidebar:
     st.header("Filter Options")
     
     nearby_1000_threshold = st.slider(
-        "Minimum Sites Within 1000m",
+        "Minimum Number of Calls Within 1000m",
         min_value=0,
         max_value=20,
         value=0,
@@ -51,7 +51,7 @@ with st.sidebar:
 
     # Slider for Nearby_Count_3000
     nearby_3000_threshold = st.slider(
-        "Minimum Sites Within 3000m",
+        "Minimum Number of Calls Within 3000m",
         min_value=0,
         max_value=30,
         value=0,
