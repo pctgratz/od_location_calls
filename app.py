@@ -41,6 +41,23 @@ col1, col2 = st.columns([7, 3])
 with st.sidebar:
     st.header("Filter Options")
     
+    nearby_1000_threshold = st.slider(
+        "Minimum Sites Within 1000m",
+        min_value=0,
+        max_value=20,
+        value=0,
+        step=1
+    )
+
+    # Slider for Nearby_Count_3000
+    nearby_3000_threshold = st.slider(
+        "Minimum Sites Within 3000m",
+        min_value=0,
+        max_value=30,
+        value=0,
+        step=1
+    )
+
     # Cluster selection
     selected_clusters = st.multiselect(
         "Select Clusters to Highlight:",
@@ -104,13 +121,22 @@ with col1:
     
     # Add site points to the map with unique IDs
     for idx, site in map_sites.iterrows():
-        # Determine if this point should be highlighted
-        is_highlighted = selected_clusters and site['Cluster'] in selected_clusters
-        
+# Determine if this point should be highlighted based on cluster filter
+        is_cluster_highlighted = (not selected_clusters) or (site['Cluster'] in selected_clusters)
+
+        # Determine if the site meets proximity thresholds
+        meets_proximity_criteria = (
+            site['Nearby_Count_1000'] >= nearby_1000_threshold and
+            site['Nearby_Count_3000'] >= nearby_3000_threshold
+        )
+
+        # Final visibility condition
+        is_highlighted = is_cluster_highlighted and meets_proximity_criteria
+
         # Set marker properties based on highlighting
         marker_color = site_colors[site['Cluster']]
-        marker_opacity = 1.0 if is_highlighted or not selected_clusters else 0.4
-        marker_radius = 8 if is_highlighted or not selected_clusters else 6
+        marker_opacity = 1.0 if is_highlighted else 0.2
+        marker_radius = 8 if is_highlighted else 6
         
         # Create tooltip content
         tooltip_html = f"""
