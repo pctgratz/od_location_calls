@@ -9,7 +9,6 @@ import json
 from shapely.geometry import Point
 from shapely.ops import nearest_points
 import os
-import numpy as np
 
 # Set the page title and layout
 st.set_page_config(
@@ -21,11 +20,6 @@ sites_path = 'Sites_with_Clusters.geojson'
 calls_path = 'Overdose_zip_geocodio.csv'
 mainroads_path = 'MainRoads.geojson'
 transit_path = 'Transit.geojson'
-
-# Load K-means algorithm and scaler
-k_means_algo = pd.read_pickle('kmeans_algo.pkl')
-std_scaler = k_means_algo['scaler']
-k_means = k_means_algo['kmeans']
 
 sites = gpd.read_file(sites_path)
 sites = sites.to_crs('EPSG:4326')
@@ -285,21 +279,13 @@ with col1:
     # Display the map and capture click events
     map_data = st_folium(m, width=800, height=600, returned_objects=["last_object_clicked", "last_clicked"])
     
-# Process click events
-clicked_on_site = False
-
-# Check if we got click data and haven't processed this click yet
-if map_data.get("last_clicked") is not None:
-    click_lat = map_data["last_clicked"]["lat"]
-    click_lng = map_data["last_clicked"]["lng"]
+    # Process click events
+    clicked_on_site = False
     
-    # Create a click ID to detect duplicate clicks
-    current_click_id = f"{click_lat:.6f}_{click_lng:.6f}"
-    
-    # Check if this is a new click we haven't processed yet
-    if 'last_processed_click' not in st.session_state or st.session_state.last_processed_click != current_click_id:
-        # Update last processed click
-        st.session_state.last_processed_click = current_click_id
+    # Check if we got click data
+    if map_data.get("last_clicked") is not None:
+        click_lat = map_data["last_clicked"]["lat"]
+        click_lng = map_data["last_clicked"]["lng"]
         
         # First check if this is a known site
         for idx, row in sites.iterrows():
@@ -314,8 +300,6 @@ if map_data.get("last_clicked") is not None:
                     del st.session_state.custom_point_counts
                 if 'custom_point_distances' in st.session_state:
                     del st.session_state.custom_point_distances
-                if 'custom_point_cluster' in st.session_state:
-                    del st.session_state.custom_point_cluster
                 break
         
         # If not a known site, create a custom point
@@ -350,7 +334,7 @@ if map_data.get("last_clicked") is not None:
             
             # Calculate nearest transit distance
             def calculate_nearest_distance(point_geom, target_geom):
-                nearest_geom = nearest_points(point_geom, target_geom.union_all())[1]
+                nearest_geom = nearest_points(point_geom, target_geom.unary_union)[1]
                 return point_geom.distance(nearest_geom)
             
             # Calculate distances
@@ -370,34 +354,14 @@ if map_data.get("last_clicked") is not None:
                 'Nearest_Transit_Distance': transit_distance,
                 'Nearest_Road_Distance': road_distance
             }
-            
-            # Prepare data for K-means classification
-            feature_values = [
-                nearby_counts['Nearby_Count_500'],
-                nearby_counts['Nearby_Count_1000'],
-                nearby_counts['Nearby_Count_2000'],
-                nearby_counts['Nearby_Count_3000'],
-                transit_distance,
-                road_distance
-            ]
-            
-            # Create a feature array for the custom point
-            features_array = np.array(feature_values).reshape(1, -1)
-            
-            # Standardize the data using the loaded scaler
-            standardized_features = std_scaler.transform(features_array)
-            
-            # Predict the cluster for the custom point
-            cluster_prediction = k_means.predict(standardized_features)[0]
-            
-            # Apply the same cluster remapping as in your original code
-            # Original: sites['Cluster'] = sites['Cluster'].replace({0: 1, 1: 2, 2: 1, 3: 3})
-            cluster_mapping = {0: 1, 1: 2, 2: 1, 3: 3}
-            remapped_cluster = cluster_mapping.get(cluster_prediction, cluster_prediction)
-            
-            # Store the cluster in session state
-            st.session_state.custom_point_cluster = remapped_cluster
-            
+    
+    # Add information about the dataset
+    st.markdown(f"**Total Sites:** {len(sites)}")
+    if selected_clusters:
+        st.markdown(f"**Currently Highlighted:** {len(filtered_sites)} sites in Clusters {', '.join(map(str, selected_clusters))}")
+    if show_calls:
+        st.markdown(f"**Service Calls Displayed:** {len(calls)}")
+
 # Display site details in the right panel
 with col2:
     st.header("Site Details")
@@ -460,24 +424,6 @@ with col2:
         st.subheader("Custom Location")
         st.markdown(f"**Coordinates:** {lat:.6f}, {lng:.6f}")
         
-        # Show cluster with colored badge if available
-        if 'custom_point_cluster' in st.session_state:
-            cluster = st.session_state.custom_point_cluster
-            cluster_color = site_colors.get(cluster, '#808080')  # Default to gray if cluster not found
-            
-            st.markdown(
-                f"""
-                <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                    <span style="margin-right: 8px;"><b>Cluster:</b></span>
-                    <span style="background-color: {cluster_color}; color: white; 
-                        padding: 3px 8px; border-radius: 10px; font-weight: bold;">
-                        {cluster}
-                    </span>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-        
         # Create expandable section for proximity information
         with st.expander("Proximity Information", expanded=True):
             cols = st.columns(2)
@@ -503,26 +449,6 @@ with col2:
         with st.expander("Geospatial Information", expanded=False):
             st.markdown(f"**Latitude:** {lat:.6f}")
             st.markdown(f"**Longitude:** {lng:.6f}")
-        
-        # If we have the k-means result, show a custom marker on the map
-        if 'custom_point_cluster' in st.session_state:
-            cluster = st.session_state.custom_point_cluster
-            cluster_color = site_colors.get(cluster, '#808080')
-            
-            custom_map = folium.Map(location=[lat, lng], zoom_start=15)
-            folium.CircleMarker(
-                location=[lat, lng],
-                radius=10,
-                color=cluster_color,
-                fill=True,
-                fill_color=cluster_color,
-                fill_opacity=0.7,
-                tooltip=f"Custom Location (Cluster {cluster})"
-            ).add_to(custom_map)
-            
-            # Display a small map showing the custom location with proper cluster color
-            st.subheader("Custom Location Map")
-            st_folium(custom_map, width=300, height=200)
             
         # Add a button to clear selection
         if st.button("Clear Selection"):
@@ -532,8 +458,6 @@ with col2:
                 del st.session_state.custom_point_counts
             if 'custom_point_distances' in st.session_state:
                 del st.session_state.custom_point_distances
-            if 'custom_point_cluster' in st.session_state:
-                del st.session_state.custom_point_cluster
             st.rerun()
     else:
         st.info("👈 Click on a site or anywhere on the map to view details and nearby call counts.")
