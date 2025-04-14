@@ -350,7 +350,7 @@ if map_data.get("last_clicked") is not None:
             
             # Calculate nearest transit distance
             def calculate_nearest_distance(point_geom, target_geom):
-                nearest_geom = nearest_points(point_geom, target_geom.union_all())[1]
+                nearest_geom = nearest_points(point_geom, target_geom.unary_union)[1]
                 return point_geom.distance(nearest_geom)
             
             # Calculate distances
