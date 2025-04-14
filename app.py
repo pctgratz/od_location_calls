@@ -7,6 +7,7 @@ from streamlit_folium import folium_static, st_folium
 import branca.colormap as cm
 import json
 from shapely.geometry import Point
+from shapely.ops import nearest_points
 import os
 
 # Set the page title and layout
@@ -17,6 +18,8 @@ st.set_page_config(
 
 sites_path = 'Sites_with_Clusters.geojson'
 calls_path = 'Overdose_zip_geocodio.csv'
+mainroads_path = 'MainRoads.geojson'
+transit_path = 'Transit.geojson'
 
 sites = gpd.read_file(sites_path)
 sites = sites.to_crs('EPSG:4326')
@@ -30,6 +33,11 @@ sites = sites.to_crs('EPSG:4326')
 calls = pd.read_csv(calls_path)
 calls = gpd.GeoDataFrame(calls, geometry=gpd.points_from_xy(calls.Longitude, calls.Latitude), crs='EPSG:4326')
 
+mainroads = gpd.read_file(mainroads_path)
+mainroads = mainroads.to_crs('EPSG:4326')
+
+transit = gpd.read_file(transit_path)
+transit = transit.to_crs('EPSG:4326')
 
 # App title
 st.title("Pierce County Sites Visualization")
@@ -290,6 +298,8 @@ with col1:
                     del st.session_state.custom_point
                 if 'custom_point_counts' in st.session_state:
                     del st.session_state.custom_point_counts
+                if 'custom_point_distances' in st.session_state:
+                    del st.session_state.custom_point_distances
                 break
         
         # If not a known site, create a custom point
@@ -316,6 +326,34 @@ with col1:
             
             # Store the counts in session state
             st.session_state.custom_point_counts = nearby_counts
+            
+            # Calculate distance to nearest transit and main road
+            # Convert datasets to the same CRS for distance calculation
+            mainroads_3857 = mainroads.to_crs(epsg=3857)
+            transit_3857 = transit.to_crs(epsg=3857)
+            
+            # Calculate nearest transit distance
+            def calculate_nearest_distance(point_geom, target_geom):
+                nearest_geom = nearest_points(point_geom, target_geom.unary_union)[1]
+                return point_geom.distance(nearest_geom)
+            
+            # Calculate distances
+            transit_distance = calculate_nearest_distance(
+                custom_point_gdf.geometry[0], 
+                transit_3857.geometry
+            )
+            
+            # Calculate nearest road distance
+            road_distance = calculate_nearest_distance(
+                custom_point_gdf.geometry[0], 
+                mainroads_3857.geometry
+            )
+            
+            # Store distances in session state
+            st.session_state.custom_point_distances = {
+                'Nearest_Transit_Distance': transit_distance,
+                'Nearest_Road_Distance': road_distance
+            }
     
     # Add information about the dataset
     st.markdown(f"**Total Sites:** {len(sites)}")
@@ -365,9 +403,9 @@ with col2:
         with st.expander("Distance Information", expanded=True):
             cols = st.columns(2)
             with cols[0]:
-                st.metric("Nearest Transit (Meters)", f"{selected_site['Nearest_Transit_Distance']}m")
+                st.metric("Nearest Transit (Meters)", f"{selected_site['Nearest_Transit_Distance']:.1f}m")
             with cols[1]:
-                st.metric("Nearest Main Road (Meters)", f"{selected_site['Nearest_Road_Distance']}m")
+                st.metric("Nearest Main Road (Meters)", f"{selected_site['Nearest_Road_Distance']:.1f}m")
         
         # Display coordinates
         with st.expander("Geospatial Information", expanded=False):
@@ -396,21 +434,30 @@ with col2:
                 st.metric("Calls within 1000m", st.session_state.custom_point_counts.get('Nearby_Count_1000', 0))
                 st.metric("Calls within 3000m", st.session_state.custom_point_counts.get('Nearby_Count_3000', 0))
         
+        # Display distance information if available
+        if 'custom_point_distances' in st.session_state:
+            with st.expander("Distance Information", expanded=True):
+                cols = st.columns(2)
+                with cols[0]:
+                    st.metric("Nearest Transit (Meters)", 
+                             f"{st.session_state.custom_point_distances.get('Nearest_Transit_Distance', 0):.1f}m")
+                with cols[1]:
+                    st.metric("Nearest Main Road (Meters)", 
+                             f"{st.session_state.custom_point_distances.get('Nearest_Road_Distance', 0):.1f}m")
+        
         # Display coordinates again in an expandable section
         with st.expander("Geospatial Information", expanded=False):
             st.markdown(f"**Latitude:** {lat:.6f}")
             st.markdown(f"**Longitude:** {lng:.6f}")
             
-        # Add a marker for the custom location on the map (this will be visible after rerun)
-        m = folium.Map(location=[lat, lng], zoom_start=15)
-        folium.Marker([lat, lng], tooltip="Custom Location").add_to(m)
-        
         # Add a button to clear selection
         if st.button("Clear Selection"):
             if 'custom_point' in st.session_state:
                 del st.session_state.custom_point
             if 'custom_point_counts' in st.session_state:
                 del st.session_state.custom_point_counts
+            if 'custom_point_distances' in st.session_state:
+                del st.session_state.custom_point_distances
             st.rerun()
     else:
         st.info("👈 Click on a site or anywhere on the map to view details and nearby call counts.")
